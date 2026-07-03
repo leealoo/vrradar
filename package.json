@@ -1,0 +1,83 @@
+{
+  "name": "vr-radar-lite",
+  "version": "0.1.0",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:web": "next build",
+    "electron:dev": "electron .",
+    "pack:win": "electron-builder --win --dir",
+    "template-db": "node scripts/create-template-db.js",
+    "dist:win": "npm run prisma:generate && npm run template-db && npm run build:web && electron-builder --win --dir && NSISDIR=/home/originflow/.cache/electron-builder/nsis/nsis-3.0.4.1 /home/originflow/.cache/electron-builder/nsis/nsis-3.0.4.1/linux/makensis scripts/vr-radar-lite-installer.nsi",
+    "dist:win:builder": "npm run prisma:generate && npm run template-db && npm run build:web && electron-builder --win nsis",
+    "start": "next start",
+    "lint": "next lint",
+    "refresh": "tsx scripts/refresh.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cheerio": "^1.0.0",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.468.0",
+    "next": "^14.2.18",
+    "prisma": "^5.22.0",
+    "rss-parser": "^3.13.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.18",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "build": {
+    "appId": "com.vrradar.lite",
+    "productName": "VR Radar Lite",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      ".next/standalone/**/*",
+      ".next/standalone/node_modules/.prisma/**/*",
+      ".next/static/**/*",
+      "public/**/*",
+      "prisma/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "prisma",
+        "to": "prisma",
+        "filter": [
+          "schema.prisma",
+          "dev.db"
+        ]
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "VRRadarLite.exe"
+    },
+    "afterPack": "electron/after-pack.cjs"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "electron@33.4.11": true,
+    "esbuild@0.28.1": true,
+    "prisma@5.22.0": true,
+    "unrs-resolver@1.12.2": true
+  }
+}
