@@ -1,0 +1,65 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Feed {
+  id        String    @id @default(cuid())
+  name      String
+  url       String    @unique
+  type      String    @default("RSS")
+  enabled   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  articles  Article[]
+}
+
+model Article {
+  id          String    @id @default(cuid())
+  title           String
+  translatedTitle String    @default("")
+  link        String    @unique
+  source      String
+  publishedAt DateTime?
+  publishedAtSource String    @default("UNKNOWN")
+  companyTags String    @default("[]")
+  topicTags   String    @default("[]")
+  favorite    Boolean   @default(false)
+  favoritedAt DateTime?
+  note        String    @default("")
+  deleted     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  feedId      String?
+  feed        Feed?     @relation(fields: [feedId], references: [id], onDelete: SetNull)
+}
+
+model TagRule {
+  id        String      @id @default(cuid())
+  category  String
+  label     String
+  keywords  String      @default("[]")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([category, label])
+}
+
+model SavedSearchKeyword {
+  id        String   @id @default(cuid())
+  keyword   String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
