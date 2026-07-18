@@ -1,8 +1,27 @@
 "use client";
-import { RefreshCw, Trash2, Plus } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, RefreshCw, RotateCcw, Trash2, Plus, XCircle } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 
-type Feed = { id: string; name: string; url: string; type: "RSS" | "WEB"; enabled: boolean; _count?: { articles: number } };
+type Feed = {
+  id: string;
+  name: string;
+  url: string;
+  type: "RSS" | "WEB";
+  enabled: boolean;
+  _count?: { articles: number };
+  feedbackCounts: { correct: number; rejected: number };
+};
+
+type CrawlFeedback = {
+  id: string;
+  articleId: string;
+  verdict: "CORRECT" | "REJECTED";
+  origin: "USER" | "SYSTEM";
+  titleSnapshot: string;
+  linkSnapshot: string;
+  discoveredFromUrl: string;
+  updatedAt: string;
+};
 
 export default function FeedsPage() {
   const [feeds, setFeeds] = useState<Feed[]>([]);
@@ -12,6 +31,8 @@ export default function FeedsPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [batchText, setBatchText] = useState("");
+  const [expandedFeedId, setExpandedFeedId] = useState<string | null>(null);
+  const [feedbackByFeed, setFeedbackByFeed] = useState<Record<string, CrawlFeedback[]>>({});
 
   async function readResponse(res: Response) {
     const ct = res.headers.get("content-type") || "";
@@ -60,6 +81,36 @@ export default function FeedsPage() {
   async function removeFeed(feed: Feed) { await fetch(`/api/feeds/${feed.id}`, { method: "DELETE" }); await load(); }
   async function refreshOne(feed: Feed) { setLoading(true); setStatus(`正在抓取 ${feed.name}...`); const res = await fetch("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ feedId: feed.id }) }); const data = await res.json(); setStatus(`${feed.name}: 新增 ${data.created} 条标题`); setLoading(false); await load(); }
 
+  async function toggleFeedback(feed: Feed) {
+    if (expandedFeedId === feed.id) {
+      setExpandedFeedId(null);
+      return;
+    }
+    setExpandedFeedId(feed.id);
+    const res = await fetch(`/api/feeds/${feed.id}/feedback`);
+    const data = await readResponse(res);
+    if (res.ok) setFeedbackByFeed((current) => ({ ...current, [feed.id]: data }));
+    else setStatus(data.error || "读取抓取反馈失败");
+  }
+
+  async function clearFeedback(feedId: string, articleId: string) {
+    const res = await fetch(`/api/articles/${articleId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ crawlVerdict: null })
+    });
+    const data = await readResponse(res);
+    if (!res.ok) {
+      setStatus(data.error || "撤销反馈失败");
+      return;
+    }
+    setFeedbackByFeed((current) => ({
+      ...current,
+      [feedId]: (current[feedId] || []).filter((item) => item.articleId !== articleId)
+    }));
+    await load();
+  }
+
   useEffect(() => { load(); }, []);
 
   return (<>
@@ -84,6 +135,34 @@ export default function FeedsPage() {
               <button className="button secondary" onClick={() => refreshOne(feed)} disabled={loading || !feed.enabled}><RefreshCw size={16} />抓取</button>
               <button className="button secondary" onClick={() => toggleFeed(feed)}>{feed.enabled ? "停用" : "启用"}</button>
               <button className="button ghost" onClick={() => removeFeed(feed)}><Trash2 size={16} /></button>
+              <button className="button secondary feed-feedback-toggle" onClick={() => toggleFeedback(feed)}>
+                {expandedFeedId === feed.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                抓取反馈：正确 {feed.feedbackCounts?.correct || 0} / 错误 {feed.feedbackCounts?.rejected || 0}
+              </button>
+              {expandedFeedId === feed.id ? (
+                <div className="feed-feedback-list">
+                  {(feedbackByFeed[feed.id] || []).length === 0 ? (
+                    <div className="empty feedback-empty">这个网站还没有抓取反馈。</div>
+                  ) : (feedbackByFeed[feed.id] || []).map((feedback) => (
+                    <div className="feedback-item" key={feedback.id}>
+                      <div className="feedback-verdict">
+                        {feedback.verdict === "CORRECT" ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                        {feedback.verdict === "CORRECT" ? "抓取正确" : "不应抓取"}
+                        {feedback.origin === "SYSTEM" ? <span className="tag">系统识别</span> : null}
+                      </div>
+                      <div>
+                        <a className="article-title" href={feedback.linkSnapshot} target="_blank" rel="noreferrer">
+                          {feedback.titleSnapshot}
+                        </a>
+                        <div className="feed-url">发现页面：{feedback.discoveredFromUrl || "旧记录"}</div>
+                      </div>
+                      <button className="button secondary" onClick={() => clearFeedback(feed.id, feedback.articleId)}>
+                        <RotateCcw size={16} />撤销
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>))
         }
       </div>

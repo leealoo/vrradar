@@ -1,8 +1,14 @@
 "use client";
 
 import { format } from "date-fns";
-import { Languages, RefreshCw, Search, Star, StarOff, Trash2 } from "lucide-react";
+import { CheckCircle2, Languages, RefreshCw, Search, Star, StarOff, Trash2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  readNdjsonStream,
+  type RefreshProgressSnapshot,
+  type RefreshResult,
+  type RefreshStreamMessage
+} from "@/lib/refreshProgress";
 import { parseTags } from "@/lib/tags";
 
 type Article = {
@@ -17,6 +23,7 @@ type Article = {
   topicTags: string;
   favorite: boolean;
   deleted: boolean;
+  crawlVerdict: "CORRECT" | "REJECTED" | null;
   createdAt: string;
 };
 
@@ -34,7 +41,7 @@ type TranslateBatchResult = {
   remaining?: number;
 };
 
-type BatchAction = "delete" | "favorite" | "unfavorite";
+type BatchAction = "delete" | "favorite" | "unfavorite" | "mark-correct" | "mark-rejected" | "clear-feedback";
 
 async function readJson<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
@@ -66,6 +73,7 @@ export function ArticleList({ mode }: Props) {
   const [topic, setTopic] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [refreshProgress, setRefreshProgress] = useState<RefreshProgressSnapshot | null>(null);
   const [translating, setTranslating] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const autoTranslateStarted = useRef(false);
@@ -108,14 +116,41 @@ export function ArticleList({ mode }: Props) {
   async function refresh() {
     setLoading(true);
     setStatus("正在抓取信息源标题...");
+    setRefreshProgress({
+      stage: "starting",
+      totalFeeds: 0,
+      completedFeeds: 0,
+      remainingFeeds: 0,
+      created: 0,
+      currentFeed: null
+    });
     try {
       const res = await fetch("/api/refresh", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson"
+        },
+        body: JSON.stringify({ stream: true })
       });
-      const data = await readJson<{ checkedFeeds: number; created: number }>(res);
-      setStatus(`已检查 ${data.checkedFeeds} 个信息源，新增 ${data.created} 条标题`);
+
+      if (!res.ok) await readJson(res);
+      if (!res.body) throw new Error("浏览器未提供抓取进度流");
+
+      let result: RefreshResult | null = null;
+      let streamError = "";
+      await readNdjsonStream<RefreshStreamMessage>(res.body, (message) => {
+        if (message.type === "progress") setRefreshProgress(message.progress);
+        if (message.type === "complete") result = message.result;
+        if (message.type === "error") streamError = message.message;
+      });
+
+      if (streamError) throw new Error(streamError);
+      if (!result) throw new Error("抓取进度流意外结束");
+
+      const finalResult = result as RefreshResult;
+      const failureText = finalResult.errors.length ? `，失败 ${finalResult.errors.length} 个` : "";
+      setStatus(`已检查 ${finalResult.checkedFeeds} 个信息源，新增 ${finalResult.created} 条标题${failureText}`);
       await load(true);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -183,7 +218,7 @@ export function ArticleList({ mode }: Props) {
     }
   }
 
-  async function updateArticle(id: string, patch: Partial<Pick<Article, "favorite" | "deleted">>) {
+  async function updateArticle(id: string, patch: Partial<Pick<Article, "favorite" | "deleted" | "crawlVerdict">>) {
     try {
       const res = await fetch(`/api/articles/${id}`, {
         method: "PATCH",
@@ -191,7 +226,9 @@ export function ArticleList({ mode }: Props) {
         body: JSON.stringify(patch)
       });
       const updated = await readJson<Article>(res);
-      setArticles((current) => current.map((article) => (article.id === id ? updated : article)).filter((article) => !article.deleted && (mode === "favorites" ? article.favorite : true)));
+      setArticles((current) => current
+        .map((article) => (article.id === id ? updated : article))
+        .filter((article) => !article.deleted && article.crawlVerdict !== "REJECTED" && (mode === "favorites" ? article.favorite : true)));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     }
@@ -234,8 +271,14 @@ export function ArticleList({ mode }: Props) {
         setArticles((current) => current.filter((article) => !idSet.has(article.id)));
       } else if (action === "favorite") {
         setArticles((current) => current.map((article) => (idSet.has(article.id) ? { ...article, favorite: true } : article)));
-      } else {
+      } else if (action === "unfavorite") {
         setArticles((current) => current.filter((article) => !idSet.has(article.id)));
+      } else if (action === "mark-correct") {
+        setArticles((current) => current.map((article) => (idSet.has(article.id) ? { ...article, crawlVerdict: "CORRECT" } : article)));
+      } else if (action === "mark-rejected") {
+        setArticles((current) => current.filter((article) => !idSet.has(article.id)));
+      } else {
+        setArticles((current) => current.map((article) => (idSet.has(article.id) ? { ...article, crawlVerdict: null } : article)));
       }
 
       setSelectedIds(new Set());
@@ -261,6 +304,11 @@ export function ArticleList({ mode }: Props) {
   const topics = keywords.tagRules.filter((rule) => rule.category === "TOPIC").map((rule) => rule.label);
   const allSelected = articles.length > 0 && selectedIds.size === articles.length;
   const selectedCount = selectedIds.size;
+  const progressPercent = refreshProgress
+    ? refreshProgress.totalFeeds === 0
+      ? refreshProgress.stage === "completed" ? 100 : 0
+      : Math.round((refreshProgress.completedFeeds / refreshProgress.totalFeeds) * 100)
+    : 0;
 
   const grouped = useMemo(() => {
     if (mode !== "today") return null;
@@ -298,6 +346,32 @@ export function ArticleList({ mode }: Props) {
         )}
       </div>
 
+      {mode === "today" && refreshProgress ? (
+        <div className="refresh-progress" aria-live="polite" aria-atomic="true">
+          <div className="refresh-progress-head">
+            <strong>
+              {refreshProgress.stage === "completed"
+                ? "抓取完成"
+                : refreshProgress.currentFeed
+                  ? `正在抓取：${refreshProgress.currentFeed.name}`
+                  : "正在准备抓取..."}
+            </strong>
+            <span>{progressPercent}%</span>
+          </div>
+          <progress
+            className="refresh-progress-bar"
+            max={100}
+            value={progressPercent}
+            aria-label="网站抓取进度"
+          />
+          <div className="refresh-progress-stats">
+            <span>本次新增 {refreshProgress.created} 条</span>
+            <span>已完成 {refreshProgress.completedFeeds}/{refreshProgress.totalFeeds} 个网站</span>
+            <span>剩余 {refreshProgress.remainingFeeds} 个网站</span>
+          </div>
+        </div>
+      ) : null}
+
       <div className="batch-row">
         <button className="button secondary" onClick={toggleSelectAll} disabled={articles.length === 0}>
           {allSelected ? "取消全选" : "全选当前列表"}
@@ -305,6 +379,14 @@ export function ArticleList({ mode }: Props) {
         <span className="batch-count">已选 {selectedCount} 条</span>
         {mode !== "favorites" ? (
           <>
+            <button className="button secondary" onClick={() => batchUpdate("mark-correct")} disabled={selectedCount === 0}>
+              <CheckCircle2 size={16} />
+              标记抓取正确
+            </button>
+            <button className="button secondary feedback-reject" onClick={() => batchUpdate("mark-rejected")} disabled={selectedCount === 0}>
+              <XCircle size={16} />
+              标记不应抓取
+            </button>
             <button className="button secondary" onClick={() => batchUpdate("favorite")} disabled={selectedCount === 0}>
               <Star size={16} />
               批量收藏
@@ -366,6 +448,7 @@ export function ArticleList({ mode }: Props) {
             <div className="meta">
               <span>{article.source}</span>
               <span>{formatPublishedAt(article)}</span>
+              {article.crawlVerdict === "CORRECT" ? <span className="feedback-correct-label">已确认抓取正确</span> : null}
             </div>
             </div>
           </div>
@@ -385,6 +468,26 @@ export function ArticleList({ mode }: Props) {
           {topicTags.map((item) => <span className="tag" key={item}>{item}</span>)}
         </div>
         <div className="article-actions">
+          {mode !== "favorites" ? (
+            <>
+              <button
+                className={article.crawlVerdict === "CORRECT" ? "button feedback-correct" : "button secondary"}
+                onClick={() => updateArticle(article.id, { crawlVerdict: article.crawlVerdict === "CORRECT" ? null : "CORRECT" })}
+                title={article.crawlVerdict === "CORRECT" ? "取消正确标记" : "标记为抓取正确"}
+              >
+                <CheckCircle2 size={16} />
+                {article.crawlVerdict === "CORRECT" ? "已确认正确" : "抓取正确"}
+              </button>
+              <button
+                className="button secondary feedback-reject"
+                onClick={() => updateArticle(article.id, { crawlVerdict: "REJECTED" })}
+                title="标记为不应抓取并隐藏"
+              >
+                <XCircle size={16} />
+                不应抓取
+              </button>
+            </>
+          ) : null}
           <button className="button secondary delete-article-button" onClick={() => deleteArticle(article.id)} title="删除">
             <Trash2 size={16} />
             删除

@@ -13,6 +13,7 @@
     "dist:win": "npm run prisma:generate && npm run template-db && npm run build:web && electron-builder --win --dir && NSISDIR=/home/originflow/.cache/electron-builder/nsis/nsis-3.0.4.1 /home/originflow/.cache/electron-builder/nsis/nsis-3.0.4.1/linux/makensis scripts/vr-radar-lite-installer.nsi",
     "dist:win:builder": "npm run prisma:generate && npm run template-db && npm run build:web && electron-builder --win nsis",
     "start": "next start",
+    "test": "tsx --test tests/*.test.ts",
     "lint": "next lint",
     "refresh": "tsx scripts/refresh.ts",
     "prisma:generate": "prisma generate",

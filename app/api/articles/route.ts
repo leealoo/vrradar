@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { ensureDatabaseSchema } from "@/lib/dbInit";
 import { prisma } from "@/lib/prisma";
 import { parseTags } from "@/lib/tags";
+import { articleWithCrawlVerdict } from "@/lib/feedbackStore";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,10 @@ export async function GET(request: Request) {
     const company = searchParams.get("company");
     const topic = searchParams.get("topic");
 
-    const where: Prisma.ArticleWhereInput = { deleted: false };
+    const where: Prisma.ArticleWhereInput = {
+      deleted: false,
+      OR: [{ crawlFeedback: { is: null } }, { crawlFeedback: { is: { verdict: { not: "REJECTED" } } } }]
+    };
     if (q) where.title = { contains: q };
     if (favorite === "true") where.favorite = true;
     if (date) {
@@ -32,6 +36,7 @@ export async function GET(request: Request) {
 
     const articles = await prisma.article.findMany({
       where,
+      include: { crawlFeedback: { select: { verdict: true } } },
       orderBy: [{ createdAt: "desc" }],
       take: 500
     });
@@ -42,7 +47,7 @@ export async function GET(request: Request) {
       return companyOk && topicOk;
     });
 
-    return NextResponse.json(filtered);
+    return NextResponse.json(filtered.map(articleWithCrawlVerdict));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

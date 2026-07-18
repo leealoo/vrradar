@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseSchema } from "@/lib/dbInit";
 import { prisma } from "@/lib/prisma";
+import { setManyArticleCrawlVerdicts } from "@/lib/feedbackStore";
 
 export const dynamic = "force-dynamic";
 
-const actions = ["delete", "favorite", "unfavorite"] as const;
+const actions = ["delete", "favorite", "unfavorite", "mark-correct", "mark-rejected", "clear-feedback"] as const;
 type BatchAction = (typeof actions)[number];
 
 function isBatchAction(value: unknown): value is BatchAction {
@@ -30,6 +31,12 @@ export async function POST(request: Request) {
     }
     if (!isBatchAction(body.action)) {
       return NextResponse.json({ error: "不支持的批量操作" }, { status: 400 });
+    }
+
+    if (body.action === "mark-correct" || body.action === "mark-rejected" || body.action === "clear-feedback") {
+      const verdict = body.action === "mark-correct" ? "CORRECT" : body.action === "mark-rejected" ? "REJECTED" : null;
+      const updated = await setManyArticleCrawlVerdicts(ids, verdict);
+      return NextResponse.json({ updated });
     }
 
     const data =

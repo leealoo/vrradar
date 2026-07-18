@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS "Article" (
     "source" TEXT NOT NULL,
     "publishedAt" DATETIME,
     "publishedAtSource" TEXT NOT NULL DEFAULT 'UNKNOWN',
+    "discoveredFromUrl" TEXT NOT NULL DEFAULT '',
+    "extractionMethod" TEXT NOT NULL DEFAULT 'LEGACY',
+    "contextSignature" TEXT NOT NULL DEFAULT 'LEGACY',
     "companyTags" TEXT NOT NULL DEFAULT '[]',
     "topicTags" TEXT NOT NULL DEFAULT '[]',
     "favorite" BOOLEAN NOT NULL DEFAULT false,
@@ -26,6 +29,26 @@ CREATE TABLE IF NOT EXISTS "Article" (
     "updatedAt" DATETIME NOT NULL,
     "feedId" TEXT,
     CONSTRAINT "Article_feedId_fkey" FOREIGN KEY ("feedId") REFERENCES "Feed" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "CrawlFeedback" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "articleId" TEXT NOT NULL,
+    "feedId" TEXT,
+    "siteHost" TEXT NOT NULL,
+    "verdict" TEXT NOT NULL,
+    "origin" TEXT NOT NULL DEFAULT 'USER',
+    "titleSnapshot" TEXT NOT NULL,
+    "linkSnapshot" TEXT NOT NULL,
+    "normalizedLink" TEXT NOT NULL,
+    "discoveredFromUrl" TEXT NOT NULL DEFAULT '',
+    "extractionMethod" TEXT NOT NULL DEFAULT 'LEGACY',
+    "contextSignature" TEXT NOT NULL DEFAULT 'LEGACY',
+    "pathKind" TEXT NOT NULL DEFAULT 'OTHER',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CrawlFeedback_articleId_fkey" FOREIGN KEY ("articleId") REFERENCES "Article" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "CrawlFeedback_feedId_fkey" FOREIGN KEY ("feedId") REFERENCES "Feed" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS "TagRule" (
@@ -53,5 +76,8 @@ CREATE TABLE IF NOT EXISTS "AppSetting" (
 
 CREATE UNIQUE INDEX IF NOT EXISTS "Feed_url_key" ON "Feed"("url");
 CREATE UNIQUE INDEX IF NOT EXISTS "Article_link_key" ON "Article"("link");
+CREATE UNIQUE INDEX IF NOT EXISTS "CrawlFeedback_articleId_key" ON "CrawlFeedback"("articleId");
+CREATE INDEX IF NOT EXISTS "CrawlFeedback_siteHost_verdict_idx" ON "CrawlFeedback"("siteHost", "verdict");
+CREATE INDEX IF NOT EXISTS "CrawlFeedback_feedId_verdict_idx" ON "CrawlFeedback"("feedId", "verdict");
 CREATE UNIQUE INDEX IF NOT EXISTS "TagRule_category_label_key" ON "TagRule"("category", "label");
 CREATE UNIQUE INDEX IF NOT EXISTS "SavedSearchKeyword_keyword_key" ON "SavedSearchKeyword"("keyword");

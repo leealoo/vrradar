@@ -6,7 +6,23 @@ export async function GET() {
   try {
     await ensureDatabaseSchema();
     const feeds = await prisma.feed.findMany({ orderBy: { createdAt: "desc" }, include: { _count: { select: { articles: true } } } });
-    return NextResponse.json(feeds);
+    const counts = await prisma.crawlFeedback.groupBy({
+      by: ["feedId", "verdict"],
+      where: { feedId: { not: null } },
+      _count: { _all: true }
+    });
+    const feedbackCounts = new Map<string, { correct: number; rejected: number }>();
+    for (const item of counts) {
+      if (!item.feedId) continue;
+      const value = feedbackCounts.get(item.feedId) || { correct: 0, rejected: 0 };
+      if (item.verdict === "CORRECT") value.correct = item._count._all;
+      if (item.verdict === "REJECTED") value.rejected = item._count._all;
+      feedbackCounts.set(item.feedId, value);
+    }
+    return NextResponse.json(feeds.map((feed) => ({
+      ...feed,
+      feedbackCounts: feedbackCounts.get(feed.id) || { correct: 0, rejected: 0 }
+    })));
   } catch (e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
 }
 export async function POST(req: Request) {

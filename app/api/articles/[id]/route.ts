@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseSchema } from "@/lib/dbInit";
 import { prisma } from "@/lib/prisma";
+import { articleWithCrawlVerdict, setArticleCrawlVerdict } from "@/lib/feedbackStore";
+import type { CrawlVerdict } from "@/lib/crawlFeedback";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +17,22 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
   if (typeof body.deleted === "boolean") data.deleted = body.deleted;
 
-  const article = await prisma.article.update({
+  const requestedVerdict: CrawlVerdict | null | undefined =
+    body.crawlVerdict === "CORRECT" || body.crawlVerdict === "REJECTED"
+      ? body.crawlVerdict
+      : body.crawlVerdict === null
+        ? null
+        : undefined;
+
+  await prisma.article.update({
     where: { id: params.id },
     data
   });
 
-  return NextResponse.json(article);
+  const article = requestedVerdict === undefined
+    ? await prisma.article.findUnique({ where: { id: params.id }, include: { crawlFeedback: true } })
+    : await setArticleCrawlVerdict(params.id, requestedVerdict);
+
+  if (!article) return NextResponse.json({ error: "文章不存在" }, { status: 404 });
+  return NextResponse.json(articleWithCrawlVerdict(article));
 }

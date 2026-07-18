@@ -17,6 +17,7 @@ model Feed {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   articles  Article[]
+  crawlFeedback CrawlFeedback[]
 }
 
 model Article {
@@ -27,6 +28,9 @@ model Article {
   source      String
   publishedAt DateTime?
   publishedAtSource String    @default("UNKNOWN")
+  discoveredFromUrl String    @default("")
+  extractionMethod String    @default("LEGACY")
+  contextSignature String    @default("LEGACY")
   companyTags String    @default("[]")
   topicTags   String    @default("[]")
   favorite    Boolean   @default(false)
@@ -37,6 +41,30 @@ model Article {
   updatedAt   DateTime  @updatedAt
   feedId      String?
   feed        Feed?     @relation(fields: [feedId], references: [id], onDelete: SetNull)
+  crawlFeedback CrawlFeedback?
+}
+
+model CrawlFeedback {
+  id                String   @id @default(cuid())
+  articleId         String   @unique
+  feedId            String?
+  siteHost          String
+  verdict           String
+  origin            String   @default("USER")
+  titleSnapshot     String
+  linkSnapshot      String
+  normalizedLink    String
+  discoveredFromUrl String   @default("")
+  extractionMethod  String   @default("LEGACY")
+  contextSignature  String   @default("LEGACY")
+  pathKind           String   @default("OTHER")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  article           Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  feed              Feed?    @relation(fields: [feedId], references: [id], onDelete: SetNull)
+
+  @@index([siteHost, verdict])
+  @@index([feedId, verdict])
 }
 
 model TagRule {
